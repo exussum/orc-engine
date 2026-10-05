@@ -33,11 +33,6 @@ class Runtime:
             entry = self._snapshots.get(key)
             return bool(entry and datetime.now(self._tz) <= entry[1])
 
-    def read_snapshot(self, key: str) -> Any:
-        with self._lock:
-            entry = self._snapshots.get(key)
-            return entry[0] if entry and datetime.now(self._tz) <= entry[1] else None
-
     def pop_snapshot(self, key: str) -> Any:
         with self._lock:
             entry = self._snapshots.pop(key, None)

@@ -82,18 +82,11 @@ def test_snapshots_active_until_deadline(runtime, clock):
     assert runtime.snapshot_active("s") is False
 
 
-def test_snapshots_peek_reads_without_popping(runtime, clock):
-    runtime.save_snapshot("s", "scene", T1)
-    assert runtime.read_snapshot("s") == "scene"
-    assert runtime.read_snapshot("s") == "scene"
-    clock.move_to(T1 + timedelta(seconds=1))
-    assert runtime.read_snapshot("s") is None
-
 
 def test_snapshots_get_pops_live_payload(runtime):
     runtime.save_snapshot("s", "scene", T1)
     assert runtime.pop_snapshot("s") == "scene"
-    assert runtime.read_snapshot("s") is None
+    assert runtime.pop_snapshot("s") is None
 
 
 def test_snapshots_get_expired_returns_none_but_pops(runtime, clock):
