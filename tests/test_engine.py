@@ -52,6 +52,12 @@ def test_in_holds_when_value_is_among_the_reading():
     assert not condition.holds(world_of({"weather": frozenset()}))
 
 
+def test_not_inverts():
+    condition = em.Not(em.Eq("ac", "on"))
+    assert condition.holds(world_of({"ac": "off"}))
+    assert not condition.holds(world_of({"ac": "on"}))
+
+
 @pytest.mark.parametrize(
     ("start", "stop", "now", "expected"),
     [

@@ -67,6 +67,14 @@ class Or(Condition):
 
 
 @dataclass(frozen=True)
+class Not(Condition):
+    condition: Condition
+
+    def holds(self, world: World) -> bool:
+        return not self.condition.holds(world)
+
+
+@dataclass(frozen=True)
 class Eq(Condition):
     subject: Subject
     value: Value
