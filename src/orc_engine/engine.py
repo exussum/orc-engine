@@ -6,7 +6,7 @@ cooldown, snapshot and last-read state, calls no scheduler, and starts no thread
 """
 
 from collections import defaultdict
-from collections.abc import Hashable, Iterable
+from collections.abc import Iterable
 from datetime import datetime, tzinfo
 from threading import RLock
 from typing import Any, NoReturn, overload
@@ -15,7 +15,7 @@ from orc_engine import model as m
 
 
 class Runtime:
-    def __init__(self, tz: tzinfo, *, bypass: Any = None, override_key: str | None = None) -> None:
+    def __init__(self, tz: tzinfo, *, bypass: m.Condition = m.Always(), override_key: str | None = None) -> None:
         self._tz = tz
         self._snapshots: dict[str, tuple[Any, datetime]] = {}
         self._last: defaultdict[m.Subject, m.Value] = defaultdict(lambda: None)
@@ -44,7 +44,7 @@ class Runtime:
             return {key: payload for key, (payload, deadline) in self._snapshots.items() if now <= deadline}
 
     @overload
-    def evaluate[C: Hashable](
+    def evaluate[C: m.Condition](
         self,
         items: Iterable[m.Rule[C] | m.Action[C] | m.Deferred[C]],
         *,
@@ -54,11 +54,11 @@ class Runtime:
     ) -> tuple[m.Report[C], ...]: ...
 
     @overload
-    def evaluate[C: Hashable](
+    def evaluate[C: m.Condition](
         self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool, changes: m.Changes | None = None
     ) -> tuple[m.Outcome[C], ...]: ...
 
-    def evaluate[C: Hashable](
+    def evaluate[C: m.Condition](
         self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool, changes: m.Changes | None = None
     ) -> tuple[m.Outcome[C], ...]:
         with self._lock:
@@ -82,7 +82,7 @@ class Runtime:
     def world(self, read: m.Read, *, changes: m.Changes | None = None) -> m.World:
         return _Tracking(read, changes or nothing, self._tz, self._last, {})
 
-    def _watched[C: Hashable](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> m.Outcome[C]:
+    def _watched[C: m.Condition](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> m.Outcome[C]:
         if not watch.condition.holds(world):
             if watch.delay and watch.cancel.holds(world):
                 return m.Cancel(watch)
@@ -91,7 +91,7 @@ class Runtime:
             return m.Deferred(watch, now + watch.delay)
         return m.Report(watch, self._applied_once(watch, now, world, force))
 
-    def _applied_once[C: Hashable](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
+    def _applied_once[C: m.Condition](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
         last = self._last_fired.get(watch)
         if watch.cooldown and last is not None and now - last < watch.cooldown:
             return ()
@@ -100,7 +100,7 @@ class Runtime:
             self._last_fired[watch] = now
         return commands
 
-    def _applied[C: Hashable](self, rule: m.Rule[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
+    def _applied[C: m.Condition](self, rule: m.Rule[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
         override_key = self._override_key
         snapshot = self._snapshots.get(override_key) if override_key is not None else None
         active = snapshot is not None and now <= snapshot[1]

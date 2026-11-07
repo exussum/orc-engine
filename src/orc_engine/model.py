@@ -7,8 +7,8 @@ from typing import Any, NamedTuple, Protocol
 type Value = Hashable
 type Read = Callable[[Subject], Value]
 type Changes = Callable[[Subject], tuple[Value, Value]]
-type Item[C: Hashable = Hashable] = Rule[C] | Action[C] | Watch[C] | Deferred[C]
-type Outcome[C: Hashable = Hashable] = Report[C] | Deferred[C] | Cancel[C]
+type Item[C: Condition = Condition] = Rule[C] | Action[C] | Watch[C] | Deferred[C]
+type Outcome[C: Condition = Condition] = Report[C] | Deferred[C] | Cancel[C]
 
 
 class Subject:
@@ -16,7 +16,7 @@ class Subject:
 
 
 @dataclass(frozen=True)
-class Command[T = None, C: Hashable = Hashable]:
+class Command[T = None, C: Condition = Condition]:
     subject: C
     value: Value
     tag: T | None = None
@@ -42,6 +42,12 @@ class Never(Condition):
 
 
 NEVER = Never()
+
+
+@dataclass(frozen=True)
+class Always(Condition):
+    def holds(self, world: World) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -124,7 +130,7 @@ class During(Condition):
 
 
 @dataclass(frozen=True)
-class Step[C: Hashable = Hashable](Condition):
+class Step[C: Condition = Condition](Condition):
     condition: Condition
     command: Command[Any, C]
 
@@ -133,7 +139,7 @@ class Step[C: Hashable = Hashable](Condition):
 
 
 @dataclass(frozen=True)
-class Rule[C: Hashable = Hashable](Condition):
+class Rule[C: Condition = Condition](Condition):
     steps: tuple[Step[C], ...]
     name: str = ""
     tags: frozenset[str] = frozenset()
@@ -154,12 +160,12 @@ class Rule[C: Hashable = Hashable](Condition):
 
 
 @dataclass(frozen=True)
-class Action[C: Hashable = Hashable]:
+class Action[C: Condition = Condition]:
     commands: tuple[Command[Any, C], ...] = ()
 
 
 @dataclass(frozen=True)
-class Watch[C: Hashable = Hashable]:
+class Watch[C: Condition = Condition]:
     condition: Condition
     rule: Rule[C]
     delay: timedelta = timedelta()
@@ -167,23 +173,23 @@ class Watch[C: Hashable = Hashable]:
     cancel: Condition = NEVER
 
 
-class Report[C: Hashable = Hashable](NamedTuple):
+class Report[C: Condition = Condition](NamedTuple):
     item: Item[C]
     commands: tuple[Command[Any, C], ...]
 
 
 @dataclass(frozen=True)
-class Deferred[C: Hashable = Hashable]:
+class Deferred[C: Condition = Condition]:
     watch: Watch[C]
     when: datetime
 
 
 @dataclass(frozen=True)
-class Cancel[C: Hashable = Hashable]:
+class Cancel[C: Condition = Condition]:
     watch: Watch[C]
 
 
-class SnapShot[C: Hashable = Hashable](NamedTuple):
+class SnapShot[C: Condition = Condition](NamedTuple):
     routine: tuple[Command[Any, C], ...]
     end: datetime
     label: str = ""

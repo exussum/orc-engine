@@ -8,6 +8,7 @@ from orc_engine import model as em
 
 
 LIGHT = em.Command("light", "on")
+ALICE = em.Eq("person", "Alice")
 T0 = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 T1 = T0 + timedelta(hours=1)
 
@@ -36,7 +37,7 @@ def runtime(clock):
 
 @pytest.fixture
 def overriding_runtime(clock):
-    return e.Runtime(UTC, bypass="SYSTEM", override_key="s")
+    return e.Runtime(UTC, override_key="s")
 
 
 def test_is_holds_reads_the_world():
@@ -86,7 +87,6 @@ def test_snapshots_active_until_deadline(runtime, clock):
     assert runtime.snapshot_active("s") is True
     clock.move_to(T1 + timedelta(seconds=1))
     assert runtime.snapshot_active("s") is False
-
 
 
 def test_snapshots_get_pops_live_payload(runtime):
@@ -149,35 +149,39 @@ def _gate(runtime, commands, *, force):
 
 def test_evaluate_forced_passes_all_without_recording(overriding_runtime):
     overriding_runtime.save_snapshot("s", em.SnapShot((), T1), T1)
-    cmd = em.Command("light", "on", tag="Alice")
+    cmd = em.Command("light", "on", tag=ALICE)
     assert _gate(overriding_runtime, (cmd,), force=True) == (cmd,)
     assert overriding_runtime.snapshots()["s"].routine == ()
 
 
 def test_evaluate_passes_all_when_no_snapshot_active(overriding_runtime):
-    cmd = em.Command("light", "on", tag="Alice")
+    cmd = em.Command("light", "on", tag=ALICE)
     assert _gate(overriding_runtime, (cmd,), force=False) == (cmd,)
 
 
 def test_evaluate_suppresses_non_bypass_while_override_snapshot_active(overriding_runtime):
     overriding_runtime.save_snapshot("s", em.SnapShot((), T1), T1)
-    cmd = em.Command("light", "on", tag="Alice")
+    cmd = em.Command("light", "on", tag=ALICE)
     assert _gate(overriding_runtime, (cmd,), force=False) == ()
 
 
 def test_evaluate_ignores_snapshots_under_other_keys(overriding_runtime):
     overriding_runtime.save_snapshot("entrance_sensor", em.SnapShot((), T1), T1)
-    cmd = em.Command("light", "on", tag="Alice")
+    cmd = em.Command("light", "on", tag=ALICE)
     assert _gate(overriding_runtime, (cmd,), force=False) == (cmd,)
 
 
 def test_evaluate_records_bypass_into_override_snapshot_only(overriding_runtime):
     overriding_runtime.save_snapshot("s", em.SnapShot((em.Command("light", "off"),), T1), T1)
     overriding_runtime.save_snapshot("other", em.SnapShot((), T1), T1)
-    cmd = em.Command("light", "on", tag="SYSTEM")
+    cmd = em.Command("light", "on", tag=em.Always())
     assert _gate(overriding_runtime, (cmd,), force=False) == (cmd,)
     assert overriding_runtime.snapshots()["s"].routine == (cmd,)
     assert overriding_runtime.snapshots()["other"].routine == ()
+
+
+def test_always_holds():
+    assert em.Always().holds(world_of({}))
 
 
 def test_changed_reports_old_and_new_across_evaluations(runtime):
