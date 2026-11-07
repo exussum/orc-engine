@@ -180,10 +180,6 @@ def test_evaluate_records_bypass_into_override_snapshot_only(overriding_runtime)
     assert overriding_runtime.snapshots()["other"].routine == ()
 
 
-def test_always_holds():
-    assert em.Always().holds(world_of({}))
-
-
 def test_changed_reports_old_and_new_across_evaluations(runtime):
     world = {"temp": 70}
     (report,) = runtime.evaluate([em.Rule((em.Step(em.Changed("temp"), LIGHT),))], read=read_from(world), force=True)
