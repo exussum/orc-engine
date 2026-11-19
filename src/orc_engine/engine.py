@@ -7,11 +7,13 @@ cooldown, snapshot and last-read state, calls no scheduler, and starts no thread
 
 from collections import defaultdict
 from collections.abc import Hashable, Iterable
-from datetime import datetime, tzinfo
+from datetime import datetime, tzinfo, timezone
 from threading import RLock
 from typing import Any, NoReturn, overload
 
 from orc_engine import model as m
+
+min_dt = datetime.min.replace(tzinfo=timezone.utc)
 
 
 class Runtime:
@@ -74,8 +76,10 @@ class Runtime:
                         out.append(self._watched(item, when, world, force))
                     case m.Action(plain):
                         out.append(m.Report(item, self._applied(m.Rule(tuple(m.Step(m.And(), c) for c in plain)), when, world, force)))
-                    case _:
+                    case m.Rule():
                         out.append(m.Report(item, self._applied(item, when, world, force)))
+                    case _:
+                        raise Exception(f"Unexpected type: {item}")
             self._last.update(seen)
             return tuple(out)
 
@@ -88,12 +92,14 @@ class Runtime:
                 return m.Cancel(watch)
             return m.Report(watch, ())
         if watch.delay:
+            self._last_fired[watch] = now
             return m.Deferred(watch, now + watch.delay)
         return m.Report(watch, self._applied_once(watch, now, world, force))
 
     def _applied_once[C: Hashable](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
-        last = self._last_fired.get(watch)
-        if watch.cooldown and last is not None and now - last < watch.cooldown:
+        last = self._last_fired.get(watch, min_dt)
+        cooldown = max(watch.cooldown, watch.delay)
+        if now - last < cooldown:
             return ()
         commands = self._applied(watch.rule, now, world, force)
         if commands:

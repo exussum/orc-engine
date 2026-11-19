@@ -126,10 +126,16 @@ def test_a_delayed_automation_defers_and_cancels_on_its_cancel_condition(runtime
     assert runtime.evaluate([watch], read=read_from({"door": "ajar"}), force=True) == (em.Report(watch, ()),)
 
 
-def test_deferred_rechecks_its_conditions_when_run(runtime):
+def test_deferred_rechecks_its_conditions_when_run(runtime, clock):
     watch = em.Watch(OPEN, em.Rule((em.Step(em.Eq("ac", "on"), LIGHT),)), delay=timedelta(minutes=5))
+    clock.move_to(T0)
     (deferred,) = runtime.evaluate([watch], read=read_from({"door": "open"}), force=True)
-    assert runtime.evaluate([deferred], read=read_from({"ac": "off"}), force=True) == (em.Report(deferred, ()),)
+    clock.move_to(T0 + timedelta(minutes=4, seconds=59))
+    assert runtime.evaluate([deferred], read=read_from({"ac": "on", "switch": "on"}), force=True) == (em.Report(deferred, ()),)
+    clock.move_to(T0 + timedelta(minutes=5))
+    assert runtime.evaluate([deferred], read=read_from({"ac": "on", "switch": "on"}), force=True) == (
+        em.Report(deferred, commands=(em.Command(subject="light", value="on", tag=None),)),
+    )
 
 
 def test_cooldown_silences_a_repeat_within_the_window(runtime, clock):
