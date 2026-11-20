@@ -71,7 +71,7 @@ class Runtime:
             for item in items:
                 match item:
                     case m.Deferred(watch, _):
-                        out.append(m.Report(item, self._applied_once(watch, when, world, force)))
+                        out.append(self._applied_once(watch, when, world, force))
                     case m.Watch():
                         out.append(self._watched(item, when, world, force))
                     case m.Action(plain):
@@ -94,17 +94,17 @@ class Runtime:
         if watch.delay:
             self._last_fired[watch] = now
             return m.Deferred(watch, now + watch.delay)
-        return m.Report(watch, self._applied_once(watch, now, world, force))
+        return self._applied_once(watch, now, world, force)
 
-    def _applied_once[C: Hashable](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
+    def _applied_once[C: Hashable](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> m.Outcome[C]:
         last = self._last_fired.get(watch, min_dt)
         cooldown = max(watch.cooldown, watch.delay)
         if now - last < cooldown:
-            return ()
+            return m.Deferred(watch, last + cooldown)
         commands = self._applied(watch.rule, now, world, force)
         if commands:
             self._last_fired[watch] = now
-        return commands
+        return m.Report(watch, commands)
 
     def _applied[C: Hashable](self, rule: m.Rule[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
         override_key = self._override_key
