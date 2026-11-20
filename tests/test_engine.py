@@ -123,7 +123,7 @@ def test_a_delayed_automation_defers_and_cancels_on_its_cancel_condition(runtime
     watch = em.Watch(OPEN, em.Rule((em.Step(em.And(), LIGHT),)), delay=timedelta(minutes=5), cancel=CLOSED)
     assert runtime.evaluate([watch], read=read_from({"door": "open"}), force=True) == (em.Deferred(watch, T0 + timedelta(minutes=5)),)
     assert runtime.evaluate([watch], read=read_from({"door": "closed"}), force=True) == (em.Cancel(watch),)
-    assert runtime.evaluate([watch], read=read_from({"door": "ajar"}), force=True) == (em.Report(watch, ()),)
+    assert runtime.evaluate([watch], read=read_from({"door": "ajar"}), force=True) == (em.Dropped(watch),)
 
 
 def test_deferred_rechecks_its_conditions_when_run(runtime, clock):
@@ -146,7 +146,7 @@ def test_cooldown_silences_a_repeat_within_the_window(runtime, clock):
     open_door = read_from({"door": "open"})
     assert runtime.evaluate([watch], read=open_door, force=True) == (em.Report(watch, (LIGHT,)),)
     clock.move_to(T0 + timedelta(seconds=5))
-    assert runtime.evaluate([watch], read=open_door, force=True) == (em.Deferred(watch, T0 + timedelta(seconds=10)),)
+    assert runtime.evaluate([watch], read=open_door, force=True) == (em.Dropped(watch),)
     clock.move_to(T0 + timedelta(seconds=10))
     assert runtime.evaluate([watch], read=open_door, force=True) == (em.Report(watch, (LIGHT,)),)
 

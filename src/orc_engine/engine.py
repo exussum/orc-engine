@@ -78,6 +78,8 @@ class Runtime:
                         out.append(m.Report(item, self._applied(m.Rule(tuple(m.Step(m.And(), c) for c in plain)), when, world, force)))
                     case m.Rule():
                         out.append(m.Report(item, self._applied(item, when, world, force)))
+                    case m.Dropped():
+                        pass
                     case _:
                         raise Exception(f"Unexpected type: {item}")
             self._last.update(seen)
@@ -90,7 +92,8 @@ class Runtime:
         if not watch.condition.holds(world):
             if watch.delay and watch.cancel.holds(world):
                 return m.Cancel(watch)
-            return m.Report(watch, ())
+            else:
+                return m.Dropped(watch)
         if watch.delay:
             self._last_fired[watch] = now
             return m.Deferred(watch, now + watch.delay)
@@ -100,7 +103,11 @@ class Runtime:
         last = self._last_fired.get(watch, min_dt)
         cooldown = max(watch.cooldown, watch.delay)
         if now - last < cooldown:
-            return m.Deferred(watch, last + cooldown)
+            if cooldown == watch.cooldown:
+                return m.Dropped(watch)
+            else:
+                return m.Deferred(watch, last + cooldown)
+
         commands = self._applied(watch.rule, now, world, force)
         if commands:
             self._last_fired[watch] = now

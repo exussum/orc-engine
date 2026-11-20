@@ -7,8 +7,8 @@ from typing import Any, NamedTuple, Protocol
 type Value = Hashable
 type Read = Callable[[Subject], Value]
 type Changes = Callable[[Subject], tuple[Value, Value]]
-type Item[C: Hashable = Hashable] = Rule[C] | Action[C] | Watch[C] | Deferred[C]
-type Outcome[C: Hashable = Hashable] = Report[C] | Deferred[C] | Cancel[C]
+type Item[C: Hashable = Hashable] = Rule[C] | Action[C] | Watch[C] | Deferred[C] | Dropped[C]
+type Outcome[C: Hashable = Hashable] = Report[C] | Deferred[C] | Cancel[C] | Dropped[C]
 
 
 class Subject:
@@ -186,6 +186,11 @@ class Deferred[C: Hashable = Hashable]:
 
 @dataclass(frozen=True)
 class Cancel[C: Hashable = Hashable]:
+    watch: Watch[C]
+
+
+@dataclass(frozen=True)
+class Dropped[C: Hashable = Hashable]:
     watch: Watch[C]
 
 
