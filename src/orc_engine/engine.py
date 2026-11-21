@@ -24,7 +24,7 @@ class Runtime[C: Hashable = Hashable]:
 
         self._previous: defaultdict[m.Subject, m.Value] = defaultdict(lambda: None)
         self._fired_at: dict[m.Watch[C], datetime] = {}
-        self._held: dict[m.Watch[C], dict[m.Subject, m.Value]] = {}
+        self._held: defaultdict[m.Watch[C], dict[m.Subject, m.Value]] = defaultdict(dict)
 
         self._lock = RLock()
         self._override_key = override_key
@@ -172,9 +172,7 @@ class WrappedWorld[C: Hashable = Hashable]:
 
     def hold(self) -> None:
         if self._watch is not None:
-            held = self._runtime._held.setdefault(self._watch, {})
-            for subject, old in self._olds.items():
-                held.setdefault(subject, old)
+            self._runtime._held[self._watch].update(self._olds)
 
     def release(self) -> None:
         if self._watch is not None:
