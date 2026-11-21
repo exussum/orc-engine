@@ -6,7 +6,6 @@ from typing import NamedTuple, Protocol
 
 type Value = Hashable
 type Read = Callable[[Subject], Value]
-type Changes = Callable[[Subject], tuple[Value, Value]]
 type Source[C: Hashable = Hashable] = Rule[C] | Action[C] | Watch[C]
 type Item[C: Hashable = Hashable] = Source[C] | Defer[C] | Drop[C] | Cooldown[C]
 type Outcome[C: Hashable = Hashable] = Report[C] | Defer[C] | Cancel[C] | Drop[C] | Cooldown[C]
@@ -198,6 +197,15 @@ class Drop[C: Hashable = Hashable]:
 @dataclass(frozen=True)
 class Cooldown[C: Hashable = Hashable]:
     watch: Watch[C]
+
+
+@dataclass(frozen=True)
+class Was:
+    subject: Subject
+    value: Value
+
+
+NO_WAS = Was(Subject(), None)
 
 
 class SnapShot[C: Hashable = Hashable](NamedTuple):

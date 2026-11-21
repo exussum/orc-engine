@@ -1,6 +1,6 @@
 """A generic rule evaluator: a rule's steps apply when their conditions hold.
 
-The caller supplies the world as a `Read` callback (and, per event, the reported `Changes`) and
+The caller supplies the world as a `Read` callback (and, per event, what the changed subject `Was`) and
 performs the returned commands. `Runtime` reads the clock as `datetime.now(tz)`, holds in-memory
 cooldown, snapshot and last-read state, calls no scheduler, and starts no threads.
 """
@@ -48,9 +48,9 @@ class Runtime[C: Hashable = Hashable]:
             now = datetime.now(self._tz)
             return {key: payload for key, (payload, deadline) in self._snapshots.items() if now <= deadline}
 
-    def evaluate(self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool) -> tuple[m.Outcome[C], ...]:
+    def evaluate(self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool, was: m.Was = m.NO_WAS) -> tuple[m.Outcome[C], ...]:
         with self._lock:
-            world = WrappedWorld(self, read)
+            world = WrappedWorld(self, read, was)
             when = world.now()
             out: list[m.Outcome[C]] = []
             for item in items:
@@ -78,8 +78,8 @@ class Runtime[C: Hashable = Hashable]:
             world.commit()
             return tuple(out)
 
-    def world(self, read: m.Read) -> m.World:
-        return WrappedWorld(self, read)
+    def world(self, read: m.Read, was: m.Was = m.NO_WAS) -> m.World:
+        return WrappedWorld(self, read, was)
 
     @staticmethod
     def _reported(item: m.Source[C], commands: tuple[m.Command[m.Condition, C], ...]) -> m.Outcome[C]:
@@ -129,15 +129,16 @@ class Runtime[C: Hashable = Hashable]:
 
 
 class WrappedWorld[C: Hashable = Hashable]:
-    def __init__(self, runtime: Runtime[C], read: m.Read) -> None:
+    def __init__(self, runtime: Runtime[C], read: m.Read, was: m.Was = m.NO_WAS) -> None:
         self._runtime = runtime
         self._read = read
+        self._was = was
         self._seen: dict[m.Subject, m.Value] = {}
         self._watch: m.Watch[C] | None = None
         self._olds: dict[m.Subject, m.Value] = {}
 
     def for_watch(self, watch: m.Watch[C]) -> WrappedWorld[C]:
-        world = WrappedWorld(self._runtime, self._read)
+        world = WrappedWorld(self._runtime, self._read, self._was)
         world._seen = self._seen
         world._watch = watch
         return world
@@ -153,7 +154,13 @@ class WrappedWorld[C: Hashable = Hashable]:
         except KeyError:
             return None
         held = self._runtime._held.get(self._watch, {}) if self._watch is not None else {}
-        old = held[subject] if subject in held else self._runtime._previous[subject]
+        if subject in held:
+            old = held[subject]
+        else:
+            if self._was.subject == subject and self._was.value is not None:
+                old = self._was.value
+            else:
+                old = self._runtime._previous[subject]
         self._olds[subject] = old
         return None if old == new else (old, new)
 
