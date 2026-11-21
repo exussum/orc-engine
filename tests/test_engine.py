@@ -220,32 +220,34 @@ def test_evaluate_records_bypass_into_override_snapshot_only(overriding_runtime)
     assert overriding_runtime.snapshots()["other"].routine == ()
 
 
-def test_permitted_passes_all_when_no_snapshot_active(overriding_runtime):
+def test_apply_override_passes_all_when_no_snapshot_active(overriding_runtime):
     cmd = em.Command("light", "on", tag=ALICE)
-    assert overriding_runtime.permitted((cmd,)) == (cmd,)
+    assert overriding_runtime.apply_override((cmd,)) == (cmd,)
 
 
-def test_permitted_suppresses_non_bypass_while_override_snapshot_active(overriding_runtime):
+def test_apply_override_suppresses_non_bypass_while_override_snapshot_active(overriding_runtime):
     overriding_runtime.save_snapshot("s", em.SnapShot((), T1))
     cmd = em.Command("light", "on", tag=ALICE)
-    assert overriding_runtime.permitted((cmd,)) == ()
+    assert overriding_runtime.apply_override((cmd,)) == ()
+    assert overriding_runtime.snapshots()["s"].routine == ()
 
 
-def test_permitted_passes_bypass_without_recording(overriding_runtime):
-    kept = (em.Command("light", "off"),)
-    overriding_runtime.save_snapshot("s", em.SnapShot(kept, T1))
+def test_apply_override_records_bypass_into_override_snapshot_only(overriding_runtime):
+    overriding_runtime.save_snapshot("s", em.SnapShot((em.Command("light", "off"),), T1))
+    overriding_runtime.save_snapshot("other", em.SnapShot((), T1))
     cmd = em.Command("light", "on", tag=em.Always())
-    assert overriding_runtime.permitted((cmd,)) == (cmd,)
-    assert overriding_runtime.snapshots()["s"].routine == kept
+    assert overriding_runtime.apply_override((cmd,)) == (cmd,)
+    assert overriding_runtime.snapshots()["s"].routine == (cmd,)
+    assert overriding_runtime.snapshots()["other"].routine == ()
 
 
-def test_permitted_ignores_expired_and_other_snapshots(overriding_runtime, runtime):
+def test_apply_override_ignores_expired_and_other_snapshots(overriding_runtime, runtime):
     cmd = em.Command("light", "on", tag=ALICE)
     overriding_runtime.save_snapshot("entrance_sensor", em.SnapShot((), T1))
     overriding_runtime.save_snapshot("s", em.SnapShot((), T0 - timedelta(seconds=1)))
-    assert overriding_runtime.permitted((cmd,)) == (cmd,)
+    assert overriding_runtime.apply_override((cmd,)) == (cmd,)
     runtime.save_snapshot("s", em.SnapShot((), T1))
-    assert runtime.permitted((cmd,)) == (cmd,)
+    assert runtime.apply_override((cmd,)) == (cmd,)
 
 
 def test_changed_reports_old_and_new_across_evaluations(runtime):
