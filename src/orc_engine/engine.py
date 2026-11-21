@@ -9,7 +9,7 @@ from collections import defaultdict
 from collections.abc import Hashable, Iterable
 from datetime import datetime, tzinfo, timezone
 from threading import RLock
-from typing import Any, NoReturn, overload
+from typing import Any
 
 from orc_engine import model as m
 
@@ -19,11 +19,15 @@ min_dt = datetime.min.replace(tzinfo=timezone.utc)
 class Runtime:
     def __init__(self, tz: tzinfo, *, bypass: m.Condition = m.Always(), override_key: str | None = None) -> None:
         self._tz = tz
-        self._snapshots: dict[str, tuple[Any, datetime]] = {}
-        self._last: defaultdict[m.Subject, m.Value] = defaultdict(lambda: None)
-        self._last_fired: dict[m.Watch[Any], datetime] = {}
-        self._lock = RLock()
+
         self._bypass = bypass
+        self._snapshots: dict[str, tuple[Any, datetime]] = {}
+
+        self._last: defaultdict[m.Subject, m.Value] = defaultdict(lambda: None)  # rename _last to something else here
+        self._last_fired: dict[m.Watch[Any], datetime] = {}
+        self._held: dict[m.Watch[Any], dict[m.Subject, m.Value]] = {}
+
+        self._lock = RLock()
         self._override_key = override_key
 
     def save_snapshot(self, key: str, payload: Any, deadline: datetime) -> None:
@@ -45,72 +49,56 @@ class Runtime:
             now = datetime.now(self._tz)
             return {key: payload for key, (payload, deadline) in self._snapshots.items() if now <= deadline}
 
-    @overload
-    def evaluate[C: Hashable](
-        self,
-        items: Iterable[m.Rule[C] | m.Action[C] | m.Deferred[C]],
-        *,
-        read: m.Read,
-        force: bool,
-        changes: m.Changes | None = None,
-    ) -> tuple[m.Report[C], ...]: ...
-
-    @overload
-    def evaluate[C: Hashable](
-        self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool, changes: m.Changes | None = None
-    ) -> tuple[m.Outcome[C], ...]: ...
-
-    def evaluate[C: Hashable](
-        self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool, changes: m.Changes | None = None
-    ) -> tuple[m.Outcome[C], ...]:
+    def evaluate[C: Hashable](self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool) -> tuple[m.Outcome[C], ...]:
         with self._lock:
-            seen: dict[m.Subject, m.Value] = {}
-            world = _Tracking(read, changes or nothing, self._tz, self._last, seen)
+            world = WrappedWorld(self, read)
             when = world.now()
             out: list[m.Outcome[C]] = []
             for item in items:
                 match item:
-                    case m.Deferred(watch, _):
+                    case m.Defer(watch, _):
                         out.append(self._applied_once(watch, when, world, force))
                     case m.Watch():
-                        out.append(self._watched(item, when, world, force))
+                        own = world.for_watch(item)
+                        outcome = self._watched(item, when, own, force)
+                        match outcome:
+                            case m.Cooldown():
+                                own.hold()
+                            case _:
+                                own.release()
+                        out.append(outcome)
                     case m.Action(plain):
                         out.append(m.Report(item, self._applied(m.Rule(tuple(m.Step(m.And(), c) for c in plain)), when, world, force)))
                     case m.Rule():
                         out.append(m.Report(item, self._applied(item, when, world, force)))
-                    case m.Dropped():
+                    case m.Drop() | m.Cooldown():
                         pass
                     case _:
                         raise Exception(f"Unexpected type: {item}")
-            self._last.update(seen)
+            world.commit()
             return tuple(out)
 
-    def world(self, read: m.Read, *, changes: m.Changes | None = None) -> m.World:
-        return _Tracking(read, changes or nothing, self._tz, self._last, {})
+    def world(self, read: m.Read) -> m.World:
+        return WrappedWorld(self, read)
 
     def _watched[C: Hashable](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> m.Outcome[C]:
         if not watch.condition.holds(world):
             if watch.delay and watch.cancel.holds(world):
                 return m.Cancel(watch)
             else:
-                return m.Dropped(watch)
+                return m.Drop(watch)
         if watch.delay:
             self._last_fired[watch] = now
-            return m.Deferred(watch, now + watch.delay)
+            return m.Defer(watch, now + watch.delay)
         return self._applied_once(watch, now, world, force)
 
     def _applied_once[C: Hashable](self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> m.Outcome[C]:
-        last = self._last_fired.get(watch, min_dt)
-        cooldown = max(watch.cooldown, watch.delay)
-        if now - last < cooldown:
-            if cooldown == watch.cooldown:
-                return m.Dropped(watch)
-            else:
-                return m.Deferred(watch, last + cooldown)
-
         commands = self._applied(watch.rule, now, world, force)
-        if commands:
-            self._last_fired[watch] = now
+        if not commands:
+            return m.Drop(watch)
+        if now - self._last_fired.get(watch, min_dt) < max(watch.cooldown, watch.delay):
+            return m.Cooldown(watch)
+        self._last_fired[watch] = now
         return m.Report(watch, commands)
 
     def _applied[C: Hashable](self, rule: m.Rule[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[Any, C], ...]:
@@ -135,13 +123,16 @@ class Runtime:
         return tuple(out)
 
 
-class _Tracking:
-    def __init__(self, read: m.Read, changes: m.Changes, tz: tzinfo, last: defaultdict[m.Subject, m.Value], seen: dict[m.Subject, m.Value]) -> None:
+class WrappedWorld:
+    def __init__(self, runtime: Runtime, read: m.Read, *, seen: dict[m.Subject, m.Value] | None = None, watch: m.Watch[Any] | None = None) -> None:
+        self._runtime = runtime
         self._read = read
-        self._changes = changes
-        self._tz = tz
-        self._last = last
-        self._seen = seen
+        self._seen: dict[m.Subject, m.Value] = {} if seen is None else seen
+        self._watch = watch
+        self._olds: dict[m.Subject, m.Value] = {}
+
+    def for_watch(self, watch: m.Watch[Any]) -> WrappedWorld:
+        return WrappedWorld(self._runtime, self._read, seen=self._seen, watch=watch)
 
     def read(self, subject: m.Subject) -> m.Value:
         value = self._read(subject)
@@ -150,20 +141,26 @@ class _Tracking:
 
     def changed(self, subject: m.Subject) -> tuple[m.Value, m.Value] | None:
         try:
-            old, new = self._changes(subject)
+            new = self.read(subject)
         except KeyError:
-            try:
-                old, new = None, self.read(subject)
-            except KeyError:
-                return None
-        if old is None:
-            old = self._last[subject]
-        self._seen[subject] = new
+            return None
+        held = self._runtime._held.get(self._watch, {}) if self._watch is not None else {}
+        old = held[subject] if subject in held else self._runtime._last[subject]
+        self._olds[subject] = old
         return None if old == new else (old, new)
 
     def now(self) -> datetime:
-        return datetime.now(self._tz)
+        return datetime.now(self._runtime._tz)
 
+    def commit(self) -> None:
+        self._runtime._last.update(self._seen)
 
-def nothing(subject: m.Subject) -> NoReturn:
-    raise KeyError(subject)
+    def hold(self) -> None:
+        if self._watch is not None:
+            held = self._runtime._held.setdefault(self._watch, {})
+            for subject, old in self._olds.items():
+                held.setdefault(subject, old)
+
+    def release(self) -> None:
+        if self._watch is not None:
+            self._runtime._held.pop(self._watch, None)

@@ -121,9 +121,9 @@ CLOSED = em.Eq("door", "closed")
 
 def test_a_delayed_automation_defers_and_cancels_on_its_cancel_condition(runtime):
     watch = em.Watch(OPEN, em.Rule((em.Step(em.And(), LIGHT),)), delay=timedelta(minutes=5), cancel=CLOSED)
-    assert runtime.evaluate([watch], read=read_from({"door": "open"}), force=True) == (em.Deferred(watch, T0 + timedelta(minutes=5)),)
+    assert runtime.evaluate([watch], read=read_from({"door": "open"}), force=True) == (em.Defer(watch, T0 + timedelta(minutes=5)),)
     assert runtime.evaluate([watch], read=read_from({"door": "closed"}), force=True) == (em.Cancel(watch),)
-    assert runtime.evaluate([watch], read=read_from({"door": "ajar"}), force=True) == (em.Dropped(watch),)
+    assert runtime.evaluate([watch], read=read_from({"door": "ajar"}), force=True) == (em.Drop(watch),)
 
 
 def test_deferred_rechecks_its_conditions_when_run(runtime, clock):
@@ -133,7 +133,7 @@ def test_deferred_rechecks_its_conditions_when_run(runtime, clock):
     (deferred,) = runtime.evaluate([watch], read=read_from({"door": "open"}), force=True)
 
     clock.move_to(T0 + timedelta(minutes=4, seconds=59))
-    assert runtime.evaluate([deferred], read=read_from({"ac": "on", "switch": "on"}), force=True) == (em.Deferred(watch, T0 + timedelta(minutes=5)),)
+    assert runtime.evaluate([deferred], read=read_from({"ac": "on", "switch": "on"}), force=True) == (em.Cooldown(watch),)
 
     clock.move_to(T0 + timedelta(minutes=5))
     assert runtime.evaluate([deferred], read=read_from({"ac": "on", "switch": "on"}), force=True) == (
@@ -146,9 +146,33 @@ def test_cooldown_silences_a_repeat_within_the_window(runtime, clock):
     open_door = read_from({"door": "open"})
     assert runtime.evaluate([watch], read=open_door, force=True) == (em.Report(watch, (LIGHT,)),)
     clock.move_to(T0 + timedelta(seconds=5))
-    assert runtime.evaluate([watch], read=open_door, force=True) == (em.Dropped(watch),)
+    assert runtime.evaluate([watch], read=open_door, force=True) == (em.Cooldown(watch),)
     clock.move_to(T0 + timedelta(seconds=10))
     assert runtime.evaluate([watch], read=open_door, force=True) == (em.Report(watch, (LIGHT,)),)
+
+
+def test_a_change_during_cooldown_is_reported_after_it(runtime, clock):
+    watch = em.Watch(em.Changed("door"), em.Rule((em.Step(em.And(), LIGHT),)), cooldown=timedelta(seconds=10))
+    door = {"door": "closed"}
+    assert runtime.evaluate([watch], read=read_from(door), force=True) == (em.Report(watch, (LIGHT,)),)
+    clock.move_to(T0 + timedelta(seconds=5))
+    door["door"] = "open"
+    assert runtime.evaluate([watch], read=read_from(door), force=True) == (em.Cooldown(watch),)
+    clock.move_to(T0 + timedelta(seconds=10))
+    assert runtime.evaluate([watch], read=read_from(door), force=True) == (em.Report(watch, (LIGHT,)),)
+    clock.move_to(T0 + timedelta(seconds=20))
+    assert runtime.evaluate([watch], read=read_from(door), force=True) == (em.Drop(watch),)
+
+
+def test_a_held_change_does_not_leak_into_rules(runtime, clock):
+    watch = em.Watch(em.Changed("door"), em.Rule((em.Step(em.And(), LIGHT),)), cooldown=timedelta(seconds=10))
+    rule = em.Rule((em.Step(em.Changed("door"), LIGHT),))
+    door = {"door": "closed"}
+    runtime.evaluate([watch], read=read_from(door), force=True)
+    clock.move_to(T0 + timedelta(seconds=5))
+    door["door"] = "open"
+    assert runtime.evaluate([watch], read=read_from(door), force=True) == (em.Cooldown(watch),)
+    assert runtime.evaluate([rule], read=read_from(door), force=True) == (em.Report(rule, ()),)
 
 
 def _gate(runtime, commands, *, force):
