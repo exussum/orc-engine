@@ -48,6 +48,12 @@ class Runtime[C: Hashable = Hashable]:
             now = datetime.now(self._tz)
             return {key: snapshot for key, snapshot in self._snapshots.items() if now <= snapshot.end}
 
+    def permitted(self, commands: Iterable[m.Command[m.Condition, C]]) -> tuple[m.Command[m.Condition, C], ...]:
+        with self._lock:
+            snapshot = self._snapshots.get(self._override_key) if self._override_key is not None else None
+            active = snapshot is not None and datetime.now(self._tz) <= snapshot.end
+            return tuple(command for command in commands if not active or command.tag == self._bypass)
+
     def evaluate(self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool, change: m.Change = m.NO_CHANGE) -> tuple[m.Outcome[C], ...]:
         with self._lock:
             world = WrappedWorld(self, read, change)
