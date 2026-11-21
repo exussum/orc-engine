@@ -67,9 +67,10 @@ class Runtime[C: Hashable = Hashable]:
                                 own.release()
                         out.append(outcome)
                     case m.Action(plain):
-                        out.append(m.Report(item, self._applied(m.Rule(tuple(m.Step(m.And(), c) for c in plain)), when, world, force)))
+                        rule = m.Rule(tuple(m.Step(m.And(), c) for c in plain))
+                        out.append(self._reported(item, self._applied(rule, when, world, force)))
                     case m.Rule():
-                        out.append(m.Report(item, self._applied(item, when, world, force)))
+                        out.append(self._reported(item, self._applied(item, when, world, force)))
                     case m.Drop() | m.Cooldown():
                         pass
                     case _:
@@ -79,6 +80,10 @@ class Runtime[C: Hashable = Hashable]:
 
     def world(self, read: m.Read) -> m.World:
         return WrappedWorld(self, read)
+
+    @staticmethod
+    def _reported(item: m.Source[C], commands: tuple[m.Command[m.Condition, C], ...]) -> m.Outcome[C]:
+        return m.Report(item, commands) if commands else m.Drop(item)
 
     def _watched(self, watch: m.Watch[C], now: datetime, world: m.World, force: bool) -> m.Outcome[C]:
         if not watch.condition.holds(world):

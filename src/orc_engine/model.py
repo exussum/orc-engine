@@ -7,7 +7,8 @@ from typing import NamedTuple, Protocol
 type Value = Hashable
 type Read = Callable[[Subject], Value]
 type Changes = Callable[[Subject], tuple[Value, Value]]
-type Item[C: Hashable = Hashable] = Rule[C] | Action[C] | Watch[C] | Defer[C] | Drop[C] | Cooldown[C]
+type Source[C: Hashable = Hashable] = Rule[C] | Action[C] | Watch[C]
+type Item[C: Hashable = Hashable] = Source[C] | Defer[C] | Drop[C] | Cooldown[C]
 type Outcome[C: Hashable = Hashable] = Report[C] | Defer[C] | Cancel[C] | Drop[C] | Cooldown[C]
 
 
@@ -174,7 +175,7 @@ class Watch[C: Hashable = Hashable]:
 
 
 class Report[C: Hashable = Hashable](NamedTuple):
-    item: Item[C]
+    item: Source[C]
     commands: tuple[Command[Condition, C], ...]
 
 
@@ -191,7 +192,7 @@ class Cancel[C: Hashable = Hashable]:
 
 @dataclass(frozen=True)
 class Drop[C: Hashable = Hashable]:
-    watch: Watch[C]
+    item: Source[C]
 
 
 @dataclass(frozen=True)

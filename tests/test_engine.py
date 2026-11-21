@@ -112,7 +112,7 @@ def test_snapshots_lists_only_live(runtime, clock):
 def test_evaluate_keeps_only_rules_whose_condition_holds(runtime):
     rule = em.Rule((em.Step(em.Eq("ac", "on"), LIGHT),))
     assert runtime.evaluate([rule], read=read_from({"ac": "on"}), force=True) == (em.Report(rule, (LIGHT,)),)
-    assert runtime.evaluate([rule], read=read_from({"ac": "off"}), force=True) == (em.Report(rule, ()),)
+    assert runtime.evaluate([rule], read=read_from({"ac": "off"}), force=True) == (em.Drop(rule),)
 
 
 OPEN = em.Eq("door", "open")
@@ -172,12 +172,16 @@ def test_a_held_change_does_not_leak_into_rules(runtime, clock):
     clock.move_to(T0 + timedelta(seconds=5))
     door["door"] = "open"
     assert runtime.evaluate([watch], read=read_from(door), force=True) == (em.Cooldown(watch),)
-    assert runtime.evaluate([rule], read=read_from(door), force=True) == (em.Report(rule, ()),)
+    assert runtime.evaluate([rule], read=read_from(door), force=True) == (em.Drop(rule),)
 
 
 def _gate(runtime, commands, *, force):
-    (report,) = runtime.evaluate([em.Action(commands)], read=read_from({}), force=force)
-    return report.commands
+    (outcome,) = runtime.evaluate([em.Action(commands)], read=read_from({}), force=force)
+    match outcome:
+        case em.Report(_, passed):
+            return passed
+        case _:
+            return ()
 
 
 def test_evaluate_forced_passes_all_without_recording(overriding_runtime):
@@ -215,20 +219,19 @@ def test_evaluate_records_bypass_into_override_snapshot_only(overriding_runtime)
 
 def test_changed_reports_old_and_new_across_evaluations(runtime):
     world = {"temp": 70}
-    (report,) = runtime.evaluate([em.Rule((em.Step(em.Changed("temp"), LIGHT),))], read=read_from(world), force=True)
-    assert report.commands == (LIGHT,)
-    (report,) = runtime.evaluate([em.Rule((em.Step(em.Changed("temp"), LIGHT),))], read=read_from(world), force=True)
-    assert report.commands == ()
+    rule = em.Rule((em.Step(em.Changed("temp"), LIGHT),))
+    assert runtime.evaluate([rule], read=read_from(world), force=True) == (em.Report(rule, (LIGHT,)),)
+    assert runtime.evaluate([rule], read=read_from(world), force=True) == (em.Drop(rule),)
     world["temp"] = 71
     assert runtime.world(read_from(world)).changed("temp") == (70, 71)
 
 
 def test_changed_is_unknown_for_an_unreadable_subject(runtime):
-    (report,) = runtime.evaluate([em.Rule((em.Step(em.Changed("ghost"), LIGHT),))], read=read_from({}), force=True)
-    assert report.commands == ()
+    rule = em.Rule((em.Step(em.Changed("ghost"), LIGHT),))
+    assert runtime.evaluate([rule], read=read_from({}), force=True) == (em.Drop(rule),)
 
 
 def test_a_plain_read_seeds_the_memory_for_changed(runtime):
     runtime.evaluate([em.Rule((em.Step(em.Eq("switch", "on"), LIGHT),))], read=read_from({"switch": "on"}), force=True)
-    (report,) = runtime.evaluate([em.Rule((em.Step(em.Changed("switch"), LIGHT),))], read=read_from({"switch": "on"}), force=True)
-    assert report.commands == ()
+    rule = em.Rule((em.Step(em.Changed("switch"), LIGHT),))
+    assert runtime.evaluate([rule], read=read_from({"switch": "on"}), force=True) == (em.Drop(rule),)
