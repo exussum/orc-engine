@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Collection, Hashable
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
-from typing import Any, NamedTuple, Protocol
+from typing import NamedTuple, Protocol
 
 type Value = Hashable
 type Read = Callable[[Subject], Value]
@@ -132,7 +132,7 @@ class During(Condition):
 @dataclass(frozen=True)
 class Step[C: Hashable = Hashable](Condition):
     condition: Condition
-    command: Command[Any, C]
+    command: Command[Condition, C]
 
     def holds(self, world: World) -> bool:
         return self.condition.holds(world)
@@ -149,19 +149,19 @@ class Rule[C: Hashable = Hashable](Condition):
         object.__setattr__(self, "condition", Or(*self.steps))
 
     @property
-    def commands(self) -> tuple[Command[Any, C], ...]:
+    def commands(self) -> tuple[Command[Condition, C], ...]:
         return tuple(step.command for step in self.steps)
 
     def holds(self, world: World) -> bool:
         return self.condition.holds(world)
 
-    def where(self, keep: Callable[[Command[Any, C]], bool]) -> Rule[C]:
+    def where(self, keep: Callable[[Command[Condition, C]], bool]) -> Rule[C]:
         return Rule(tuple(step for step in self.steps if keep(step.command)), self.name, self.tags)
 
 
 @dataclass(frozen=True)
 class Action[C: Hashable = Hashable]:
-    commands: tuple[Command[Any, C], ...] = ()
+    commands: tuple[Command[Condition, C], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -175,7 +175,7 @@ class Watch[C: Hashable = Hashable]:
 
 class Report[C: Hashable = Hashable](NamedTuple):
     item: Item[C]
-    commands: tuple[Command[Any, C], ...]
+    commands: tuple[Command[Condition, C], ...]
 
 
 @dataclass(frozen=True)
@@ -200,6 +200,6 @@ class Cooldown[C: Hashable = Hashable]:
 
 
 class SnapShot[C: Hashable = Hashable](NamedTuple):
-    routine: tuple[Command[Any, C], ...]
+    routine: tuple[Command[Condition, C], ...]
     end: datetime
     label: str = ""
