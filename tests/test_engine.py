@@ -79,8 +79,11 @@ def test_during_is_half_open_and_wraps_midnight(start, stop, now, expected):
         assert em.During(start, stop).holds(world_of({})) is expected
 
 
+SCENE = em.SnapShot((), T1)
+
+
 def test_snapshots_active_until_deadline(runtime, clock):
-    runtime.save_snapshot("s", "scene", T1)
+    runtime.save_snapshot("s", SCENE)
     assert runtime.snapshot_active("s") is True
     assert runtime.snapshot_active("missing") is False
     clock.move_to(T1)
@@ -90,23 +93,23 @@ def test_snapshots_active_until_deadline(runtime, clock):
 
 
 def test_snapshots_get_pops_live_payload(runtime):
-    runtime.save_snapshot("s", "scene", T1)
-    assert runtime.pop_snapshot("s") == "scene"
+    runtime.save_snapshot("s", SCENE)
+    assert runtime.pop_snapshot("s") == SCENE
     assert runtime.pop_snapshot("s") is None
 
 
 def test_snapshots_get_expired_returns_none_but_pops(runtime, clock):
-    runtime.save_snapshot("s", "scene", T0)
+    runtime.save_snapshot("s", em.SnapShot((), T0))
     clock.move_to(T1)
     assert runtime.pop_snapshot("s") is None
     assert runtime.snapshots() == {}
 
 
 def test_snapshots_lists_only_live(runtime, clock):
-    runtime.save_snapshot("live", "a", T1)
-    runtime.save_snapshot("dead", "b", T0)
+    runtime.save_snapshot("live", SCENE)
+    runtime.save_snapshot("dead", em.SnapShot((), T0))
     clock.move_to(T0 + timedelta(minutes=1))
-    assert runtime.snapshots() == {"live": "a"}
+    assert runtime.snapshots() == {"live": SCENE}
 
 
 def test_evaluate_keeps_only_rules_whose_condition_holds(runtime):
@@ -185,7 +188,7 @@ def _gate(runtime, commands, *, force):
 
 
 def test_evaluate_forced_passes_all_without_recording(overriding_runtime):
-    overriding_runtime.save_snapshot("s", em.SnapShot((), T1), T1)
+    overriding_runtime.save_snapshot("s", em.SnapShot((), T1))
     cmd = em.Command("light", "on", tag=ALICE)
     assert _gate(overriding_runtime, (cmd,), force=True) == (cmd,)
     assert overriding_runtime.snapshots()["s"].routine == ()
@@ -197,20 +200,20 @@ def test_evaluate_passes_all_when_no_snapshot_active(overriding_runtime):
 
 
 def test_evaluate_suppresses_non_bypass_while_override_snapshot_active(overriding_runtime):
-    overriding_runtime.save_snapshot("s", em.SnapShot((), T1), T1)
+    overriding_runtime.save_snapshot("s", em.SnapShot((), T1))
     cmd = em.Command("light", "on", tag=ALICE)
     assert _gate(overriding_runtime, (cmd,), force=False) == ()
 
 
 def test_evaluate_ignores_snapshots_under_other_keys(overriding_runtime):
-    overriding_runtime.save_snapshot("entrance_sensor", em.SnapShot((), T1), T1)
+    overriding_runtime.save_snapshot("entrance_sensor", em.SnapShot((), T1))
     cmd = em.Command("light", "on", tag=ALICE)
     assert _gate(overriding_runtime, (cmd,), force=False) == (cmd,)
 
 
 def test_evaluate_records_bypass_into_override_snapshot_only(overriding_runtime):
-    overriding_runtime.save_snapshot("s", em.SnapShot((em.Command("light", "off"),), T1), T1)
-    overriding_runtime.save_snapshot("other", em.SnapShot((), T1), T1)
+    overriding_runtime.save_snapshot("s", em.SnapShot((em.Command("light", "off"),), T1))
+    overriding_runtime.save_snapshot("other", em.SnapShot((), T1))
     cmd = em.Command("light", "on", tag=em.Always())
     assert _gate(overriding_runtime, (cmd,), force=False) == (cmd,)
     assert overriding_runtime.snapshots()["s"].routine == (cmd,)

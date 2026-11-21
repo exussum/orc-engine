@@ -20,7 +20,7 @@ class Runtime[C: Hashable = Hashable]:
         self._tz = tz
 
         self._bypass = bypass
-        self._snapshots: dict[str, tuple[object, datetime]] = {}
+        self._snapshots: dict[str, m.SnapShot[C]] = {}
 
         self._previous: defaultdict[m.Subject, m.Value] = defaultdict(lambda: None)
         self._fired_at: dict[m.Watch[C], datetime] = {}
@@ -29,24 +29,24 @@ class Runtime[C: Hashable = Hashable]:
         self._lock = RLock()
         self._override_key = override_key
 
-    def save_snapshot(self, key: str, payload: object, deadline: datetime) -> None:
+    def save_snapshot(self, key: str, snapshot: m.SnapShot[C]) -> None:
         with self._lock:
-            self._snapshots[key] = (payload, deadline)
+            self._snapshots[key] = snapshot
 
     def snapshot_active(self, key: str) -> bool:
         with self._lock:
-            entry = self._snapshots.get(key)
-            return bool(entry and datetime.now(self._tz) <= entry[1])
+            snapshot = self._snapshots.get(key)
+            return bool(snapshot and datetime.now(self._tz) <= snapshot.end)
 
-    def pop_snapshot(self, key: str) -> object:
+    def pop_snapshot(self, key: str) -> m.SnapShot[C] | None:
         with self._lock:
-            entry = self._snapshots.pop(key, None)
-            return entry[0] if entry and datetime.now(self._tz) <= entry[1] else None
+            snapshot = self._snapshots.pop(key, None)
+            return snapshot if snapshot and datetime.now(self._tz) <= snapshot.end else None
 
-    def snapshots(self) -> dict[str, object]:
+    def snapshots(self) -> dict[str, m.SnapShot[C]]:
         with self._lock:
             now = datetime.now(self._tz)
-            return {key: payload for key, (payload, deadline) in self._snapshots.items() if now <= deadline}
+            return {key: snapshot for key, snapshot in self._snapshots.items() if now <= snapshot.end}
 
     def evaluate(self, items: Iterable[m.Item[C]], *, read: m.Read, force: bool, change: m.Change = m.NO_CHANGE) -> tuple[m.Outcome[C], ...]:
         with self._lock:
@@ -108,7 +108,7 @@ class Runtime[C: Hashable = Hashable]:
     def _applied(self, rule: m.Rule[C], now: datetime, world: m.World, force: bool) -> tuple[m.Command[m.Condition, C], ...]:
         override_key = self._override_key
         snapshot = self._snapshots.get(override_key) if override_key is not None else None
-        active = snapshot is not None and now <= snapshot[1]
+        active = snapshot is not None and now <= snapshot.end
         out: list[m.Command[m.Condition, C]] = []
         for step in rule.steps:
             if not step.holds(world):
@@ -117,11 +117,9 @@ class Runtime[C: Hashable = Hashable]:
             if not force:
                 if command.tag == self._bypass:
                     if override_key is not None and snapshot is not None and active:
-                        payload, deadline = snapshot
-                        if isinstance(payload, m.SnapShot):
-                            merged = {c.subject: c for c in payload.routine}
-                            merged[command.subject] = command
-                            self._snapshots[override_key] = (payload._replace(routine=tuple(merged.values())), deadline)
+                        merged = {c.subject: c for c in snapshot.routine}
+                        merged[command.subject] = command
+                        self._snapshots[override_key] = snapshot._replace(routine=tuple(merged.values()))
                 elif active:
                     continue
             out.append(command)
