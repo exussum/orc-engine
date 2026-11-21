@@ -200,12 +200,13 @@ class Cooldown[C: Hashable = Hashable]:
 
 
 @dataclass(frozen=True)
-class Was:
+class Change:
     subject: Subject
-    value: Value
+    old: Value
+    new: Value
 
 
-NO_WAS = Was(Subject(), None)
+NO_CHANGE = Change(Subject(), None, None)
 
 
 class SnapShot[C: Hashable = Hashable](NamedTuple):
