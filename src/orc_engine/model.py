@@ -206,9 +206,6 @@ class Change:
     new: Value
 
 
-NO_CHANGE = Change(Subject(), None, None)
-
-
 class SnapShot[C: Hashable = Hashable](NamedTuple):
     routine: tuple[Command[Condition, C], ...]
     end: datetime

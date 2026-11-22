@@ -267,29 +267,29 @@ def test_changed_is_unknown_for_an_unreadable_subject(runtime):
 def test_change_supplies_the_old_value_on_the_first_read(runtime):
     rule = em.Rule((em.Step(em.Changed("door"), LIGHT),))
     door = {"door": "open"}
-    assert runtime.world(read_from(door), em.Change("door", "closed", "open")).changed("door") == ("closed", "open")
-    assert runtime.evaluate([rule], read=read_from(door), change=em.Change("door", "closed", "open"), force=True) == (em.Report(rule, (LIGHT,)),)
+    assert runtime.world(read_from(door), (em.Change("door", "closed", "open"),)).changed("door") == ("closed", "open")
+    assert runtime.evaluate([rule], read=read_from(door), changes=(em.Change("door", "closed", "open"),), force=True) == (em.Report(rule, (LIGHT,)),)
 
 
 def test_change_overrides_the_remembered_value(runtime):
     rule = em.Rule((em.Step(em.Changed("door"), LIGHT),))
     door = {"door": "open"}
     runtime.evaluate([rule], read=read_from(door), force=True)
-    assert runtime.evaluate([rule], read=read_from(door), change=em.Change("door", "open", "open"), force=True) == (em.Drop(rule),)
-    assert runtime.evaluate([rule], read=read_from(door), change=em.Change("door", "closed", "open"), force=True) == (em.Report(rule, (LIGHT,)),)
+    assert runtime.evaluate([rule], read=read_from(door), changes=(em.Change("door", "open", "open"),), force=True) == (em.Drop(rule),)
+    assert runtime.evaluate([rule], read=read_from(door), changes=(em.Change("door", "closed", "open"),), force=True) == (em.Report(rule, (LIGHT,)),)
 
 
 def test_a_change_with_old_none_falls_back_to_the_remembered_value(runtime):
     rule = em.Rule((em.Step(em.Changed("button"), LIGHT),))
     runtime.evaluate([rule], read=read_from({"button": 2}), force=True)
-    assert runtime.world(read_from({"button": 1}), em.Change("button", None, 1)).changed("button") == (2, 1)
-    assert runtime.evaluate([rule], read=read_from({"button": 2}), change=em.Change("button", None, 2), force=True) == (em.Drop(rule),)
+    assert runtime.world(read_from({"button": 1}), (em.Change("button", None, 1),)).changed("button") == (2, 1)
+    assert runtime.evaluate([rule], read=read_from({"button": 2}), changes=(em.Change("button", None, 2),), force=True) == (em.Drop(rule),)
 
 
 def test_change_only_applies_to_its_subject(runtime):
     world = {"door": "open", "temp": 70}
     runtime.evaluate([em.Rule((em.Step(em.Eq("temp", 70), LIGHT),))], read=read_from(world), force=True)
-    assert runtime.world(read_from(world), em.Change("door", "closed", "open")).changed("temp") is None
+    assert runtime.world(read_from(world), (em.Change("door", "closed", "open"),)).changed("temp") is None
 
 
 def test_a_held_value_wins_over_change(runtime, clock):
@@ -298,9 +298,26 @@ def test_a_held_value_wins_over_change(runtime, clock):
     runtime.evaluate([watch], read=read_from(door), force=True)
     clock.move_to(T0 + timedelta(seconds=5))
     door["door"] = "open"
-    assert runtime.evaluate([watch], read=read_from(door), change=em.Change("door", "closed", "open"), force=True) == (em.Cooldown(watch),)
+    assert runtime.evaluate([watch], read=read_from(door), changes=(em.Change("door", "closed", "open"),), force=True) == (em.Cooldown(watch),)
     clock.move_to(T0 + timedelta(seconds=10))
-    assert runtime.evaluate([watch], read=read_from(door), change=em.Change("door", "open", "open"), force=True) == (em.Report(watch, (LIGHT,)),)
+    assert runtime.evaluate([watch], read=read_from(door), changes=(em.Change("door", "open", "open"),), force=True) == (em.Report(watch, (LIGHT,)),)
+
+
+def test_several_subjects_can_change_in_one_event(runtime):
+    rule = em.Rule((em.Step(em.Changed("device"), LIGHT),))
+    changes = (em.Change("door", "closed", "open"), em.Change("device", "closed", "open"))
+    assert runtime.evaluate([rule], read=read_from({}), changes=changes, force=True) == (em.Report(rule, (LIGHT,)),)
+
+
+def test_a_subject_takes_its_old_value_from_the_event_not_the_last_read(runtime):
+    rule = em.Rule((em.Step(em.Changed("device"), LIGHT),))
+    assert runtime.evaluate([rule], read=read_from({}), changes=(em.Change("device", 69, 70),), force=True) == (em.Report(rule, (LIGHT,)),)
+    assert runtime.evaluate([rule], read=read_from({}), changes=(em.Change("device", 65, 70),), force=True) == (em.Report(rule, (LIGHT,)),)
+
+
+def test_an_unchanged_event_does_not_change_its_subject(runtime):
+    rule = em.Rule((em.Step(em.Changed("device"), LIGHT),))
+    assert runtime.evaluate([rule], read=read_from({}), changes=(em.Change("device", "on", "on"),), force=True) == (em.Drop(rule),)
 
 
 def test_a_plain_read_seeds_the_memory_for_changed(runtime):
@@ -312,5 +329,5 @@ def test_a_plain_read_seeds_the_memory_for_changed(runtime):
 def test_a_change_new_overrides_the_read_value_and_is_remembered(runtime):
     rule = em.Rule((em.Step(em.Eq("door", "open"), LIGHT),))
     stale = read_from({"door": "closed"})
-    assert runtime.evaluate([rule], read=stale, change=em.Change("door", "closed", "open"), force=True) == (em.Report(rule, (LIGHT,)),)
+    assert runtime.evaluate([rule], read=stale, changes=(em.Change("door", "closed", "open"),), force=True) == (em.Report(rule, (LIGHT,)),)
     assert runtime.world(stale).changed("door") == ("open", "closed")
