@@ -259,6 +259,27 @@ def test_changed_reports_old_and_new_across_evaluations(runtime):
     assert runtime.world(read_from(world)).changed("temp") == (70, 71)
 
 
+def _seeded(runtime, world):
+    runtime.evaluate([em.Rule((em.Step(em.Has("temp"), LIGHT),))], read=read_from(world), force=True)
+
+
+def test_changed_uses_the_runtime_comparator(clock):
+    world = {"temp": 70}
+    runtime = e.Runtime(UTC, same=lambda old, new: old is not None and abs(old - new) <= 1)
+    _seeded(runtime, world)
+    world["temp"] = 71
+    assert runtime.world(read_from(world)).changed("temp") is None
+    world["temp"] = 73
+    assert runtime.world(read_from(world)).changed("temp") == (70, 73)
+
+
+def test_changed_compares_with_equality_by_default(runtime):
+    world = {"temp": 70}
+    _seeded(runtime, world)
+    world["temp"] = 71
+    assert runtime.world(read_from(world)).changed("temp") == (70, 71)
+
+
 def test_changed_is_unknown_for_an_unreadable_subject(runtime):
     rule = em.Rule((em.Step(em.Changed("ghost"), LIGHT),))
     assert runtime.evaluate([rule], read=read_from({}), force=True) == (em.Drop(rule),)

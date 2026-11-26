@@ -6,8 +6,9 @@ cooldown, snapshot and last-read state, calls no scheduler, and starts no thread
 """
 
 from collections import defaultdict
-from collections.abc import Hashable, Iterable
+from collections.abc import Callable, Hashable, Iterable
 from datetime import datetime, tzinfo, timezone
+from operator import eq
 from threading import RLock
 
 from orc_engine import model as m
@@ -16,8 +17,16 @@ min_dt = datetime.min.replace(tzinfo=timezone.utc)
 
 
 class Runtime[C: Hashable = Hashable]:
-    def __init__(self, tz: tzinfo, *, bypass: m.Condition = m.Always(), override_key: str | None = None) -> None:
+    def __init__(
+        self,
+        tz: tzinfo,
+        *,
+        bypass: m.Condition = m.Always(),
+        override_key: str | None = None,
+        same: Callable[[m.Value, m.Value], bool] = eq,
+    ) -> None:
         self._tz = tz
+        self._same = same
 
         self._bypass = bypass
         self._snapshots: dict[str, m.SnapShot[C]] = {}
@@ -177,7 +186,7 @@ class WrappedWorld[C: Hashable = Hashable]:
             else:
                 old = self._runtime._previous[subject]
         self._olds[subject] = old
-        return None if old == new else (old, new)
+        return None if self._runtime._same(old, new) else (old, new)
 
     def now(self) -> datetime:
         return datetime.now(self._runtime._tz)
